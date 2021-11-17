@@ -75,7 +75,7 @@ func (cfg *ResourceWatcherConfig) CheckAndSetDefaults() error {
 		cfg.Log = logrus.StandardLogger()
 	}
 	if cfg.RetryPeriod == 0 {
-		cfg.RetryPeriod = defaults.HighResPollingPeriod
+		cfg.RetryPeriod = time.Minute
 	}
 	if cfg.RefetchPeriod == 0 {
 		cfg.RefetchPeriod = defaults.LowResPollingPeriod
@@ -94,9 +94,10 @@ func (cfg *ResourceWatcherConfig) CheckAndSetDefaults() error {
 // incl. cfg.CheckAndSetDefaults.
 func newResourceWatcher(ctx context.Context, collector resourceCollector, cfg ResourceWatcherConfig) (*resourceWatcher, error) {
 	retry, err := utils.NewLinear(utils.LinearConfig{
-		Step:  cfg.RetryPeriod / 10,
-		Max:   cfg.RetryPeriod,
-		Clock: cfg.Clock,
+		Step:   cfg.RetryPeriod / 10,
+		Max:    cfg.RetryPeriod,
+		Clock:  cfg.Clock,
+		Jitter: utils.NewJitter(),
 	})
 	if err != nil {
 		return nil, trace.Wrap(err)

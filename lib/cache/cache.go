@@ -553,7 +553,7 @@ func (c *Config) CheckAndSetDefaults() error {
 		c.Clock = clockwork.NewRealClock()
 	}
 	if c.RetryPeriod == 0 {
-		c.RetryPeriod = defaults.HighResPollingPeriod
+		c.RetryPeriod = time.Minute
 	}
 	if c.WatcherInitTimeout == 0 {
 		c.WatcherInitTimeout = time.Minute
@@ -660,8 +660,9 @@ func New(config Config) (*Cache, error) {
 	}
 
 	retry, err := utils.NewLinear(utils.LinearConfig{
-		Step: cs.Config.RetryPeriod / 10,
-		Max:  cs.Config.RetryPeriod,
+		Step:   cs.Config.RetryPeriod / 10,
+		Max:    cs.Config.RetryPeriod,
+		Jitter: utils.NewJitter(),
 	})
 	if err != nil {
 		cs.Close()
