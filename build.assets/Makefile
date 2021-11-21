@@ -17,6 +17,7 @@ TEST_KUBE ?=
 OS ?= linux
 ARCH ?= amd64
 RUNTIME ?= go1.17.2
+RUST_VERSION ?= 1.56.1
 BORINGCRYPTO_RUNTIME=$(RUNTIME)b7
 LIBBPF_VERSION ?= 0.3.1
 
@@ -32,6 +33,7 @@ BUILDBOX_FIPS=quay.io/gravitational/teleport-buildbox-fips:$(RUNTIME)
 BUILDBOX_CENTOS6=quay.io/gravitational/teleport-buildbox-centos6:$(RUNTIME)
 BUILDBOX_ARM=quay.io/gravitational/teleport-buildbox-arm:$(RUNTIME)
 BUILDBOX_ARM_FIPS=quay.io/gravitational/teleport-buildbox-arm-fips:$(RUNTIME)
+BUILDBOX_RUST=quay.io/gravitational/teleport-buildbox-rust:$(RUST_VERSION)
 
 # These variables are used to dynamically change the name of the buildbox Docker image used by the 'release'
 # target. The other solution was to remove the 'buildbox' dependency from the 'release' target, but this would
@@ -107,12 +109,11 @@ buildbox:
 			--build-arg UID=$(UID) \
 			--build-arg GID=$(GID) \
 			--build-arg RUNTIME=$(RUNTIME) \
+			--build-arg RUST_VERSION=$(RUST_VERSION) \
 			--build-arg PROTOC_VER=$(PROTOC_VER) \
 			--build-arg GOGO_PROTO_TAG=$(GOGO_PROTO_TAG) \
 			--build-arg PROTOC_PLATFORM=$(PROTOC_PLATFORM) \
 			--build-arg LIBBPF_VERSION=$(LIBBPF_VERSION) \
-			--build-arg OS \
-			--build-arg ARCH \
 			--cache-from $(BUILDBOX) \
 			--tag $(BUILDBOX) . ; \
 	fi
@@ -132,6 +133,23 @@ buildbox-fips:
 			--cache-from $(BUILDBOX_FIPS) \
 			--tag $(BUILDBOX_FIPS) -f Dockerfile-fips . ; \
 	fi
+
+#
+# Builds a Docker buildbox for Rust libraries
+#
+.PHONY:buildbox-rust
+buildbox-rust:
+	@if [[ $${DRONE} == "true" ]] && ! docker inspect --type=image $(BUILDBOX_RUST) 2>&1 >/dev/null; then docker pull $(BUILDBOX_RUST) || true; fi;
+	docker build --platform=linux/amd64 \
+		--build-arg UID=$(UID) \
+		--build-arg GID=$(GID) \
+		--build-arg RUNTIME=$(RUNTIME) \
+		--build-arg RUST_VERSION=$(RUST_VERSION) \
+		--build-arg OS \
+		--build-arg ARCH \
+		--cache-from $(BUILDBOX_RUST) \
+		--tag $(BUILDBOX_RUST) -f Dockerfile-rust .
+
 
 #
 # Builds a Docker buildbox for CentOS 6 builds
@@ -255,12 +273,20 @@ enter: buildbox
 	docker run $(DOCKERFLAGS) -ti $(NOROOT) \
 		-e HOME=$(SRCDIR)/build.assets -w $(SRCDIR) $(BUILDBOX) /bin/bash
 
+.PHONY:enter-rust
+enter-rust: buildbox-rust
+	docker run $(DOCKERFLAGS) -ti $(NOROOT) \
+		-e HOME=$(SRCDIR)/build.assets -w $(SRCDIR) $(BUILDBOX_RUST) /bin/bash
+
+
 #
 # Create a Teleport package using the build container.
 # Don't use this target directly; call named Makefile targets like release-amd64.
 #
 .PHONY:release
-release: buildbox
+release: buildbox buildbox-rust
+	docker run $(DOCKERFLAGS) $(NOROOT) $(BUILDBOX_RUST) \
+		/usr/bin/make rdpclient roletester -e ADDFLAGS="$(ADDFLAGS)" OS=$(OS) ARCH=$(ARCH) RUNTIME=$(RUNTIME) REPRODUCIBLE=yes
 	docker run $(DOCKERFLAGS) $(NOROOT) $(BUILDBOX_NAME) \
 		/usr/bin/make release -e ADDFLAGS="$(ADDFLAGS)" OS=$(OS) ARCH=$(ARCH) RUNTIME=$(RUNTIME) REPRODUCIBLE=yes
 
